@@ -1,0 +1,663 @@
+<template>
+  <div>
+    <div class="top-button" >
+      <el-button class="el-button--primary is-plain" icon="rx-icon-save" @click="savePlan" :loading="isSaving">保存</el-button>
+      <el-button @click="cancel" icon="circle-close">取消</el-button>
+    </div>
+    <div class="method-form">
+      <el-form :model="formData" ref="form" :rules="rules" inline label-width="80px">
+        <el-form-item label="名称" prop="jobPlanName">
+          <el-input class="input-width-s" v-model="formData.jobPlanName" placeholder="请输入计划名称" :maxlength="10"></el-input>
+        </el-form-item>
+        <el-form-item label="计划类型">
+          <el-select v-model="formData.jobPlanType" class="input-width-s" >
+            <el-option v-for="item in dicts['JOB_PLAN_TYPE']" 
+            :key="item.info_code" 
+            :label="item.word_name" 
+            :value="item.info_code"></el-option>
+          </el-select>
+        </el-form-item>
+   <!--      <el-form-item>
+      <el-radio-group v-model="formData.isUse">
+       <el-radio :label="1">有效</el-radio>
+       <el-radio :label="0">无效</el-radio>
+     </el-radio-group>
+   </el-form-item> -->
+        <!-- 执行一次 -->
+        <div v-if="formData.jobPlanType === 'execute_once'">
+          <el-form-item label="执行时间" prop="jobPlanStartDate">
+            <el-date-picker type="datetime" placeholder="选择计划开始时间" v-model="formData.jobPlanStartDate" :editable="false"
+            :picker-options="pickerOptionStart"></el-date-picker>
+          </el-form-item>
+        </div>
+        <!-- 重复执行 -->
+        <div v-if="formData.jobPlanType === 'execute_repeat'">
+          <el-form-item label="开始时间" prop="jobPlanStartDate">
+            <el-date-picker type="datetime" placeholder="选择计划开始时间" v-model="formData.jobPlanStartDate" 
+            :editable="false"
+            :picker-options="pickerOptionStart"></el-date-picker>
+          </el-form-item>
+          <el-form-item>
+            <el-checkbox v-model="endFlag" @change="endFlagChange"></el-checkbox>
+            结束时间
+          </el-form-item>
+          <el-form-item prop="jobPlanEndDate" ref="endDateFormItem">
+            <el-date-picker type="datetime" placeholder="选择计划结束时间" 
+            v-model="formData.jobPlanEndDate" :disabled="!endFlag" :editable="false"
+            :picker-options="pickerOptionEnd"></el-date-picker>
+          </el-form-item>
+          <el-form-item label="执行周期">
+            按
+            <el-select v-model="formData.jobPlanPeriodType" style="width:70px;" @change="changePeriodType">
+              <el-option v-for="item in dicts['DATE_CYCLE']" 
+              :key="item.info_code" 
+              :label="item.word_name" 
+              :value="item.info_code"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item style="width:400px;">
+            每
+            <el-input-number class="input-width-mini" v-model="formData.jobPlanPeriod" :max="99" :min="1" :controls="false"></el-input-number>
+            {{formData.jobPlanPeriodType === 'year' ? '年' : formData.jobPlanPeriodType === 'month' ? '月' : formData.jobPlanPeriodType === 'week' ? '周' : formData.jobPlanPeriodType === 'day' ? '日' : ''}}
+          </el-form-item>
+          <!-- 日期类型为年时 -->
+          <div v-if="formData.jobPlanPeriodType === 'year'">
+            <el-form-item label="在" prop="jobPlanMonth">
+              <el-select class="input-width-xl" placeholder="请选择月份" multiple v-model="formData.jobPlanMonth" size="small">
+                <el-option 
+                  v-for="(item, index) in months" :key="index"
+                  :label="item" :value="index + 1 + ''"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="工作日历">
+              <el-select class="input-width-s" v-model="formData.dateType">
+                <el-option v-for="item in dicts['WORK_CALENDAR']" 
+                :key="item.info_code" 
+                :label="item.word_name" 
+                :value="item.info_code"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item class="no-label">
+              <el-radio v-model="weekFlag" :label="1">&nbsp;</el-radio> &nbsp;
+              在第
+              <el-input-number class="input-width-mini" 
+              v-model="formData.jobPlanWeek" 
+              :max="5" :min="1" :controls="false"
+              :disabled="weekFlag !== 1"></el-input-number>
+              个
+              <el-select v-model="formData.jobPlanDayOfWeek" style="width: 90px;" :disabled="weekFlag !== 1">
+                <el-option v-for="(item, index) in weeks" :key="index"
+                 :label="item" :value="(index + 1) + ''"></el-option>
+              </el-select>
+              <span class="prompt" v-if="formData.jobPlanWeek === 5 && formData.jobPlanDayOfWeek">*注意: 若当月没有第5个{{weeks[formData.jobPlanDayOfWeek]}}，则跳至下一个周期</span>
+            </el-form-item>
+          </div>
+          <!-- 日期类型为年，月, 周时 -->
+          <div v-if="formData.jobPlanPeriodType === 'year' || formData.jobPlanPeriodType === 'month' || formData.jobPlanPeriodType === 'week'">
+            <el-form-item style="padding-left: 45px;">
+              <el-radio v-model="weekFlag" :label="2">&nbsp;</el-radio> &nbsp;
+              在
+            </el-form-item>
+            <el-form-item prop="jobPlanDayOfWeeks" ref="jobPlanDayOfWeeks">
+              <el-select class="input-width-xl" placeholder="请选择星期" 
+              multiple v-model="formData.jobPlanDayOfWeeks" size="small"
+              :disabled="weekFlag !== 2">
+                <el-option 
+                  v-for="(item, index) in weeks" :key="index"
+                  :label="item" :value="index + 1 + ''"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item class="no-label">
+              <el-radio v-model="weekFlag" :label="3">&nbsp;</el-radio> &nbsp;
+              <el-select v-model="formData.sortRule" style="width: 75px;" :disabled="weekFlag !== 3">
+                <el-option v-for="item in dicts['ORDER_RULE']" 
+                :key="item.info_code" 
+                :label="item.word_name" 
+                :value="item.info_code"></el-option>
+              </el-select>
+              第
+              <el-input-number class="input-width-mini" 
+                v-model="formData.jobPlanDay" :max="formData.jobPlanPeriodType === 'week'?7:31" :min="1" :controls="false"
+                :disabled="weekFlag !== 3"></el-input-number>
+              <span v-if="formData.jobPlanPeriodType === 'week'">
+                工作日
+              </span>
+              <span v-else>
+                天
+                &nbsp;&nbsp;&nbsp;
+                <el-checkbox :disabled="weekFlag !== 3" v-model="formData.weekdayType" :true-label="dicts['WORK_DAY_TYPE'][1].info_code" :false-label="dicts['WORK_DAY_TYPE'][0].info_code">附近工作日</el-checkbox>
+              </span>
+            </el-form-item>
+          </div>
+          <el-form-item style="padding-left:45px;">
+            <el-radio v-model="formData.onceOrTimes" :label="0">&nbsp;</el-radio> &nbsp;
+            执行一次, 在
+          </el-form-item>
+          <el-form-item prop="jobPlanOnceTime" ref="jobPlanOnceTime"  style="width:400px;">
+            <el-time-picker v-model="formData.jobPlanOnceTime" :disabled="formData.onceOrTimes !== 0" :editable="false"></el-time-picker>
+          </el-form-item>
+          <el-form-item style="padding-left:45px;">
+            <el-radio v-model="formData.onceOrTimes" :label="1">&nbsp;</el-radio> &nbsp;
+            执行多次
+          </el-form-item>
+          <el-form-item> <!-- prop="jobPlanTimes" -->
+            <el-select prop="jobPlanTimesStart" placeholder="选择时间" style="width:75px;" :disabled="formData.onceOrTimes !== 1" v-model="formData.jobPlanTimesStart">
+                <el-option 
+                  v-for="(item, index) in hours" :key="index"
+                  :label="item" :value="index"></el-option>
+            </el-select>至
+            <el-select prop="jobPlanTimesEnd" placeholder="选择时间" style="width:75px;" :disabled="formData.onceOrTimes !== 1" v-model="formData.jobPlanTimesEnd">
+                <el-option 
+                  v-for="(item, index) in hours" :key="index"
+                  :label="item" :value="index" :disabled="index < formData.jobPlanTimesStart"></el-option>
+            </el-select>
+           <!--  <el-time-picker  :disabled="formData.onceOrTimes !== 1" format="HH时" :value-format="'HH'"
+              is-range :editable="false"
+              v-model="formData.jobPlanTimes"
+              placeholder="选择时间范围">
+            </el-time-picker> -->
+            每
+          </el-form-item>
+          <el-form-item>
+            <el-input-number class="input-width-mini" :disabled="formData.onceOrTimes !== 1"
+              v-model="formData.jobPlanPeriod2" :max="formData.maxRepeatNum" :min="1" :controls="false"></el-input-number>
+            分执行一次
+          </el-form-item>
+        </div>
+        <el-form-item label="执行规则">
+          <el-input type="textarea" style="width:550px;" :rows="3" readonly v-model="formData.jobPlanRule"></el-input>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input type="textarea" style="width:550px;" :rows="4" :maxlength="100" placeholder="请输入描述，最多100个字" v-model="formData.jobPlanDescribe"></el-input>
+        </el-form-item>
+      </el-form>
+    </div>
+  </div>
+</template>
+
+<script>
+  import moment from 'moment'
+  import _ from 'lodash'
+  import { planService } from '@config/api'
+
+  export default {
+    name: 'plansMaintain',
+    props: ['planInfo', 'jobId'],
+    created () {
+      // 获取数据字典
+      this.$store.dispatch('dictStore/getEnumByCodes', ['JOB_PLAN_TYPE', 'DATE_CYCLE', 'WORK_CALENDAR', 'ORDER_RULE', 'TIME_UNIT', 'WORK_DAY_TYPE']).then(data => {
+        this.dicts = data
+        for (let i = 0; i < 24; i++) {
+          this.hours.push(i + '时')
+        }
+        // 给formData赋值
+        if (this.planInfo) {
+          this.setData()
+        }
+        this.currentTime = moment().format('YYYY-MM-DD HH:mm:ss')
+        this.$nextTick(() => {
+          this.loaded = true
+          if (!this.formData.maxRepeatNum) {
+            this.maxRepeatNum = 59
+          }
+          if (!this.formData.jobPlanPeriodType) {
+            this.formData.jobPlanPeriodType = 'year'
+          }
+          if (!this.formData.jobPlanDayOfWeek) {
+            this.formData.jobPlanDayOfWeek = '1'
+          }
+          if (!this.formData.sortRule) {
+            this.formData.sortRule = 'asc'
+          }
+          if (!this.formData.jobPlanMonth) {
+            this.formData.jobPlanMonth = []
+          }
+          if (!this.formData.dateType) {
+            this.formData.dateType = 'calendar'
+          }
+        })
+      })
+    },
+    data () {
+      const checkNoSpecial = (rule, value, callback) => {
+        if (!value) {
+          return callback()
+        } else {
+          if (!this.UTILS.validate(value, 'no_special')) {
+            return callback(new Error('请输入非特殊字符'))
+          } else {
+            return callback()
+          }
+        }
+      }
+      return {
+        currentTime: '', // 当前时间
+        loaded: false,
+        isSaving: false,
+        months: ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'],
+        weeks: ['周日', '周一', '周二', '周三', '周四', '周五', '周六'],
+        hours: [], // 时间
+        dicts: [],
+        endFlag: false,
+        weekFlag: 1,
+        pickerOptionStart: {
+          disabledDate: date => {
+            if (this.formData.jobPlanEndDate) {
+              return date.getTime() < moment().startOf('day').toDate().getTime() ||
+                date.getTime() > moment(this.formData.jobPlanEndDate).startOf('day').toDate().getTime()
+            } else {
+              return date.getTime() < moment().startOf('day').toDate().getTime()
+            }
+          }
+        },
+        pickerOptionEnd: {
+          disabledDate: date => {
+            if (this.formData.jobPlanStartDate) {
+              return date < moment(this.formData.jobPlanStartDate).startOf('day').toDate()
+            } else {
+              return date.getTime() < moment().startOf('day').toDate().getTime()
+            }
+          }
+        },
+        formData: {
+          // 名称
+          jobPlanName: '',
+          // 计划类型
+          jobPlanType: 'execute_once',
+          // 是否有效
+          isUse: 0,
+          // 计划开始时间
+          jobPlanStartDate: null,
+          // 计划结束时间
+          jobPlanEndDate: null,
+          // 计划执行周期类型
+          jobPlanPeriodType: '', // 默认按年展示
+          // 计划执行周期
+          jobPlanPeriod: 1,
+          // 月
+          jobPlanMonth: [],
+          // 日历类型
+          dateType: 'calendar',
+          // 第几个周X
+          jobPlanWeek: 1,
+          // 周几
+          jobPlanDayOfWeek: '',
+          // 周几，多选
+          jobPlanDayOfWeeks: [],
+          // 工作日类型
+          weekdayType: 'natural_day',
+          // 排序规则
+          sortRule: '',
+          // 第几天
+          jobPlanDay: 1,
+          // 一次或多次
+          onceOrTimes: 0,
+          // 执行一次时间
+          jobPlanOnceTime: null,
+          // 执行多次时间范围
+          jobPlanTimes: [],
+          jobPlanTimesStart: 0,
+          jobPlanTimesEnd: 0,
+          maxRepeatNum: 59, // 重复时间的最大值，分、秒59，小时23，默认分59
+          // 小周期
+          jobPlanPeriod2: 1,
+          // 小周期执行时间单位,只是分
+          period2Unit: 'minute',
+          // 描述
+          jobPlanDescribe: '',
+          // 执行规则
+          jobPlanRule: ''
+        },
+        rules: {
+          jobPlanName: [{
+            required: true,
+            message: '计划名称不能为空'
+          }, { validator: checkNoSpecial, trigger: 'blur' }],
+          jobPlanStartDate: [{
+            required: true,
+            message: '执行时间不能为空'
+          }, {
+            validator: (rules, value, callback) => {
+              if (value) {
+                const newValue = moment(value).format('YYYY-MM-DD HH:mm:ss')
+                // 判断当前是否是计划编辑维护
+                if (value) {
+                  if (newValue < this.currentTime && !this.planInfo) {
+                    callback('执行时间不能小于当前时间')
+                  } else {
+                    callback()
+                  }
+                }
+              }
+            }
+          }],
+          jobPlanEndDate: [{
+            validator: (rules, value, callback) => {
+              if (this.endFlag && !value) {
+                callback('执行时间不能为空')
+              } else if (value && value < this.formData.jobPlanStartDate) {
+                callback('结束时间不能小于开始时间')
+              } else {
+                callback()
+              }
+            }
+          }],
+          jobPlanMonth: [{
+            required: true,
+            message: '至少选择一个月份'
+          }],
+          jobPlanDayOfWeeks: [{
+            validator: (rules, value, callback) => {
+              if (this.weekFlag === 2 && value.length === 0) {
+                callback('请选择执行日期')
+              } else {
+                callback()
+              }
+            }
+          }],
+          jobPlanOnceTime: [{
+            validator: (rules, value, callback) => {
+              if (this.formData.onceOrTimes === 0 && !value) {
+                callback('请选择执行时间')
+              } else {
+                callback()
+              }
+            }
+          }],
+        /*  jobPlanTimes: [{
+            validator: (rules, value, callback) => {
+              if (this.formData.onceOrTimes === 1 && value.length === 0) {
+                callback('请选择执行时间范围')
+              } else {
+                callback()
+              }
+            }
+          }], */
+          jobPlanTimesStart: [{
+            validator: (rules, value, callback) => {
+              if (this.formData.onceOrTimes === 1 && value === '') {
+                callback('请选择执行开始时间')
+              } else {
+                callback()
+              }
+            }
+          }],
+          jobPlanTimesEnd: [{
+            validator: (rules, value, callback) => {
+              if (this.formData.onceOrTimes === 1 && value === '') {
+                callback('请选择执行结束时间')
+              } else if (value !== '' && value < this.formData.jobPlanTimesStart) {
+                callback('执行结束时间不得小于开始时间')
+              } else {
+                callback()
+              }
+            }
+          }]
+        }
+      }
+    },
+    watch: {
+      formData: {
+        handler (value) {
+          if (!this.loaded) return
+          // 执行类型
+          if (this.formData.jobPlanType === 'execute_once') {
+            const jobPlanType = this.UTILS.getEnumName('JOB_PLAN_TYPE', this.formData.jobPlanType)
+            const jobPlanTime = this.formData.jobPlanStartDate ? moment(this.formData.jobPlanStartDate).format('YYYY年MM月DD日 HH时mm分ss秒') : ''
+            this.formData.jobPlanRule = `${jobPlanType} 在 ${jobPlanTime}`
+          } else {
+            const jobPlanType = this.UTILS.getEnumName('JOB_PLAN_TYPE', this.formData.jobPlanType)
+            const jobPlanStartDate = this.formData.jobPlanStartDate ? moment(this.formData.jobPlanStartDate).format('YYYY年MM月DD日 HH时mm分ss秒') : ''
+            const jobplanEndDate = this.formData.jobPlanEndDate ? moment(this.formData.jobPlanEndDate).format('YYYY年MM月DD日 HH时mm分ss秒') : ''
+            const jobPlanPeriodType = this.UTILS.getEnumName('DATE_CYCLE', this.formData.jobPlanPeriodType)
+            // 执行月参数
+            const dateType = this.UTILS.getEnumName('WORK_CALENDAR', this.formData.dateType)
+            let jobPlanMonth = ''
+            if (this.formData.jobPlanMonth && this.formData.jobPlanMonth.length > 0) {
+              jobPlanMonth = this.formData.jobPlanMonth.join(',')
+            }
+            let weekRule = null
+            if (this.weekFlag === 1) {
+              weekRule = `第${this.formData.jobPlanWeek}个${this.weeks[this.formData.jobPlanDayOfWeek - 1]}`
+            } else if (this.weekFlag === 2) {
+              weekRule = `每个`
+              for (const item of this.formData.jobPlanDayOfWeeks) {
+                weekRule += this.weeks[item - 1] + ' '
+              }
+            } else if (this.weekFlag === 3) {
+              weekRule = `${this.UTILS.getEnumName('ORDER_RULE', this.formData.sortRule)}第${this.formData.jobPlanDay}天${this.formData.weekdayType === 'work_day' ? '附近工作日' : ''}`
+            }
+            let dayRule = null
+            if (this.formData.onceOrTimes === 0) {
+              let jobPlanOnceTime = ''
+              if (this.formData.jobPlanOnceTime) {
+                jobPlanOnceTime = moment(this.formData.jobPlanOnceTime).format('HH时mm分ss秒')
+              }
+              dayRule = `${jobPlanOnceTime} 执行一次`
+            } else {
+              let jobPlanTimesStart = this.formData.jobPlanTimesStart
+              let jobPlanTimesEnd = this.formData.jobPlanTimesEnd
+              // if (this.formData.jobPlanTimes && this.formData.jobPlanTimes.length) {
+              //   jobPlanTimesStart = moment(this.formData.jobPlanTimes[0]).format('HH时')
+              //   jobPlanTimesEnd = moment(this.formData.jobPlanTimes[1]).format('HH时')
+              // }
+              // ${this.UTILS.getEnumName('TIME_UNIT', this.formData.period2Unit)}
+              dayRule = `${jobPlanTimesStart}时到${jobPlanTimesEnd}时，每 ${this.formData.jobPlanPeriod2} 分执行一次`
+            }
+            this.formData.jobPlanRule = `${jobPlanType}，在 ${jobPlanStartDate} 开始 ${this.endFlag ? jobplanEndDate + ' 结束' : ''}，每${this.formData.jobPlanPeriod}${jobPlanPeriodType}${this.formData.jobPlanPeriodType === 'year' ? '，在' + dateType + jobPlanMonth + '月' : ''}${['year', 'month', 'week'].indexOf(this.formData.jobPlanPeriodType) >= 0 ? ',' + weekRule : ''}，${dayRule}`
+          }
+        },
+        deep: true
+      },
+      weekFlag (value) {
+        if (!this.loaded) return
+        if (this.$refs.jobPlanDayOfWeeks) {
+          this.$refs.jobPlanDayOfWeeks.resetField()
+        }
+        this.formData.jobPlanDayOfWeeks = []
+        this.formData.jobPlanDayOfWeek = '1'
+        this.formData.sortRule = 'asc'
+      },
+      'formData.onceOrTimes': {
+        handler (value) {
+          if (!this.loaded) return
+          if (value === 1) {
+            this.$refs.jobPlanOnceTime.resetField()
+          } else {
+            this.$refs.jobPlanTimes.resetField()
+          }
+        }
+      },
+      'formData.period2Unit': function (newVal, old) {
+        if (newVal === 'minute') {
+          this.formData.maxRepeatNum = 59
+          if (this.formData.jobPlanPeriod2 > 59) {
+            this.formData.jobPlanPeriod2 = 1
+          }
+        }
+      },
+      'formData.jobPlanTimesStart': function (newVal, old) {
+        if (newVal !== old) {
+          this.formData.jobPlanTimesEnd = newVal
+        }
+      }
+    },
+    methods: {
+      getData () {
+        const data = {}
+        if (this.planInfo) {
+          data.jobPlanId = this.planInfo.jobPlanId
+          data.jobId = this.planInfo.jobId
+        } else {
+          data.jobId = this.jobId
+        }
+        if (this.formData.jobPlanType === 'execute_once') {
+          // 执行一次时获取数据
+          _.assign(data, {
+            jobPlanName: this.formData.jobPlanName,
+            jobPlanType: this.formData.jobPlanType,
+            isUse: this.formData.isUse,
+            jobPlanStartDate: moment(this.formData.jobPlanStartDate).format('YYYY-MM-DD HH:mm:ss'),
+            jobPlanRule: this.formData.jobPlanRule,
+            jobPlanDescribe: this.formData.jobPlanDescribe
+          })
+        } else {
+          // 执行多次时获取数据
+          _.assign(data, {
+            jobPlanName: this.formData.jobPlanName,
+            jobPlanType: this.formData.jobPlanType,
+            isUse: this.formData.isUse,
+            jobPlanStartDate: moment(this.formData.jobPlanStartDate).format('YYYY-MM-DD HH:mm:ss'),
+            jobPlanRule: this.formData.jobPlanRule,
+            jobPlanDescribe: this.formData.jobPlanDescribe,
+            jobPlanPeriodType: this.formData.jobPlanPeriodType,
+            jobPlanPeriod: this.formData.jobPlanPeriod,
+            onceOrTimes: this.formData.onceOrTimes
+          })
+          // 结束时间
+          if (this.endFlag) {
+            data.jobPlanEndDate = moment(this.formData.jobPlanEndDate).format('YYYY-MM-DD HH:mm:ss')
+          }
+          // 年相关参数
+          if (this.formData.jobPlanPeriodType === 'year') {
+            data.jobPlanMonth = this.formData.jobPlanMonth.join(',')
+            data.dateType = this.formData.dateType
+          }
+          // 年，月，周共有参数
+          if (['year', 'month', 'week'].indexOf(this.formData.jobPlanPeriodType) >= 0) {
+            if (this.weekFlag === 1) {
+              data.jobPlanWeek = this.formData.jobPlanWeek
+              data.jobPlanDayOfWeek = this.formData.jobPlanDayOfWeek
+            } else if (this.weekFlag === 2) {
+              data.jobPlanDayOfWeek = this.formData.jobPlanDayOfWeeks.join(',')
+            } else {
+              data.sortRule = this.formData.sortRule
+              data.jobPlanDay = this.formData.jobPlanDay
+              data.weekdayType = this.formData.weekdayType
+            }
+          }
+          // 日参数
+          if (this.formData.onceOrTimes === 0) {
+            data.jobPlanOnceTime = moment(this.formData.jobPlanOnceTime).format('HH:mm:ss')
+          } else {
+            if (this.formData.jobPlanTimesStart < 10) {
+              data.jobPlanStartTime = '0' + this.formData.jobPlanTimesStart + ':00:00'
+            } else {
+              data.jobPlanStartTime = this.formData.jobPlanTimesStart + ':00:00'
+            }
+            if (this.formData.jobPlanTimesEnd < 10) {
+              data.jobPlanEndTime = '0' + this.formData.jobPlanTimesEnd + ':00:00'
+            } else {
+              data.jobPlanEndTime = this.formData.jobPlanTimesEnd + ':00:00'
+            }
+            // data.jobPlanStartTime = this.formData.jobPlanTimesStart + ':00:00' // moment(this.formData.jobPlanTimes[0]).format('HH')
+            // data.jobPlanEndTime = this.formData.jobPlanTimesEnd + ':00:00' // moment(this.formData.jobPlanTimes[1]).format('HH')
+            data.jobPlanPeriod2 = this.formData.jobPlanPeriod2
+            data.period2Unit = this.formData.period2Unit
+          }
+        }
+        return data
+      },
+      setData () {
+        // 基础数据设置
+        this.UTILS.setDataFromOther(this.formData, this.planInfo)
+        // 转化日期和时间型
+        this.formData.jobPlanStartDate = moment(this.planInfo.jobPlanStartDate, 'YYYY-MM-DD HH:mm:ss').toDate()
+        if (this.planInfo.jobPlanEndDate) {
+          this.endFlag = true
+          this.formData.jobPlanEndDate = moment(this.planInfo.jobPlanEndDate, 'YYYY-MM-DD HH:mm:ss').toDate()
+        }
+        if (this.planInfo.jobPlanOnceTime) {
+          this.formData.onceOrTimes = 0
+          this.formData.jobPlanOnceTime = moment(this.planInfo.jobPlanOnceTime, 'HH:mm:ss').toDate()
+        }
+        if (this.planInfo.jobPlanStartTime) {
+          this.formData.onceOrTimes = 1
+          // this.formData.jobPlanTimes = [
+          //   moment(this.planInfo.jobPlanStartTime, 'HH:mm:ss').toDate(),
+          //   moment(this.planInfo.jobPlanEndTime, 'HH:mm:ss').toDate()
+          // ]
+          this.formData.jobPlanTimesStart = parseInt(this.planInfo.jobPlanStartTime.substr(0, 2))
+          this.formData.jobPlanTimesEnd = parseInt(this.planInfo.jobPlanEndTime.substr(0, 2))
+        }
+        // 数组类型
+        if (this.planInfo.jobPlanMonth) {
+          this.formData.jobPlanMonth = this.planInfo.jobPlanMonth.split(',')
+        }
+        if (this.planInfo.jobPlanWeek) {
+          this.weekFlag = 1
+        } else if (this.planInfo.jobPlanDayOfWeek) {
+          this.weekFlag = 2
+          this.formData.jobPlanDayOfWeek = ''
+          this.formData.jobPlanDayOfWeeks = this.planInfo.jobPlanDayOfWeek.split(',')
+        } else if (this.planInfo.sortRule) {
+          this.weekFlag = 3
+        }
+      },
+      changePeriodType (value) {
+        if (!this.loaded) return
+        if (value === 'year') {
+          this.weekFlag = 1
+        } else if (value === 'month' || value === 'week') {
+          this.weekFlag = 2
+        }
+      },
+      endFlagChange (value) {
+        if (!this.loaded) return
+        if (value) {
+          // 隐藏当前提示框
+          this.$refs.endDateFormItem.resetField()
+          this.formData.jobPlanEndDate = null
+        }
+      },
+      savePlan () {
+        // 验证表单
+        this.$refs.form.validate(result => {
+          if (result) {
+            this.isSaving = true
+            const planInfo = this.getData()
+            if (this.planInfo) {
+              // 更新
+              planService.updatePlan(this.jobId, planInfo).then(data => {
+                this.$emit('refresh')
+                this.isSaving = false
+              }).catch(msg => {
+                this.$message.warning(msg)
+                this.isSaving = false
+              })
+            } else {
+              // 新增
+              planService.createPlan(this.jobId, planInfo).then(data => {
+                this.$emit('refresh')
+                this.isSaving = false
+              }).catch(msg => {
+                this.$message.warning(msg)
+                this.isSaving = false
+              })
+            }
+          }
+        })
+      },
+      cancel () {
+        this.$emit('cancel')
+      }
+    }
+  }
+</script>
+
+<style scoped> 
+  .method-form{
+    margin-top: 20px;
+  }
+  .input-width-mini{
+    width: 40px;
+  }
+  .no-label{
+    padding-left: 45px;
+    width: 100%;
+  }
+  .prompt{
+    color: red;
+    font-size: 12px;
+  }
+</style>
